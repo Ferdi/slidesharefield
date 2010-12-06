@@ -1,0 +1,11 @@
+; $Id: slidesharefield.info,v 1.1 2010/11/21 19:06:34 sahilsahoo Exp $
+name = Slide Sharefield
+description = Enables CCK FileField integration with slideshare.net
+package = CCK
+dependencies[] = content
+dependencies[] = filefield
+dependencies[] = slideshareapi
+version = "6.x-1.0"
+core = "6.x"
+project = "slidesharefield"
+datestamp = "1258485461"

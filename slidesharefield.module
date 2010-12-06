@@ -1,0 +1,232 @@
+<?php
+// $Id: slidesharefield.module,v 1.1 2010/11/24 19:06:34 sahil.sahoo Exp $
+
+/**
+ * @file
+ * Enables CCK FileField integration with Slideshare.net.
+ */
+
+/**
+ * Implementation of hook_elements().
+ */
+function slidesharefield_elements() {
+  $filefield_elements = filefield_elements();
+  $elements['slidesharefield_widget'] = $filefield_elements['filefield_widget'];
+  $elements['slidesharefield_widget']['#process'][] = 'slidesharefield_widget_process';
+  return $elements;
+}
+
+/**
+ * Implementation of CCK's hook_widget_info().
+ */
+function slidesharefield_widget_info() {
+  return array(
+    'slidesharefield_widget' => array(
+      'label'         => t('Slideshare Upload'),
+      'field types'   => array('filefield'),
+      'callbacks'     => array('default value' => CONTENT_CALLBACK_CUSTOM),
+      'description'   => t('A widget which sends its uploaded files to Slideshare.net.'),
+    ),
+  );
+}
+
+/**
+ * Implementation of CCK's hook_widget().
+ */
+function slidesharefield_widget(&$form, &$form_state, $field, $items, $delta = 0) {
+  return filefield_widget($form, $form_state, $field, $items, $delta);
+}
+
+/**
+ * Form API #process callback; see hook_elements().
+ */
+function slidesharefield_widget_process($element, $edit, &$form_state, $form) {
+  if (_form_button_was_clicked($element['filefield_remove'])) {
+    unset($element['#value']['data']['slideshare_doc_id']);
+    $_SESSION['scribfield_removed_files'][$element['#delta']]++;
+  }
+
+  // we have no way of knowing if someone has a) edited the node, b) clicked
+  // Remove, c) uploaded a new file to the same delta. For some reason, the
+  // 'data' elements are retained even during such a workflow, so we have to
+  // keep track of deleted files in SESSION - if they have, we always wipe
+  // out our custom values there, so that the file can be handled on presave.
+  if ($_SESSION['scribfield_removed_files'][$element['#delta']]) {
+    unset($element['#value']['data']['slideshare_doc_id']);
+ 
+  }
+
+  if (!empty($element['#value']['filepath'])) {
+    $element['data']['slidesharefield_warning'] = array(
+      '#type'   => 'markup', // we don't handle any remote file deletion, so let the user know. AND MAKE 'EM DO THE LEGWORK. HAHAHAHAH.
+      '#value'  => t('<div class="description">Files intended for Slideshare.net are not sent until this entire form has been saved. Uploaded files are <strong>never</strong> automatically removed from Slideshare.net: if you remove the file or delete this content, you\'ll also need to manually remove them from Slideshare\'s "My Docs".</div>'),
+    );
+  }
+
+  return $element;
+}
+
+/**
+ * Implementation of hook_nodeapi().
+ */
+function slidesharefield_nodeapi(&$node, $op, $teaser, $page) {
+  switch ($op) {
+    case 'presave':
+
+       foreach ($node as $node_key => $node_value) {
+        if (strpos($node_key, 'field_') !== FALSE) {
+          $field = content_fields($node_key, $node->type);
+          if ($field['widget']['module'] == 'slidesharefield') {
+            unset($_SESSION['scribfield_removed_files']);
+            // see slidesharefield_widget_process() for sets.
+
+            foreach ($node->{$node_key} as $field_delta => $field_value) {
+              if (!empty($node->{$node_key}[$field_delta]['filepath']) && empty($node->{$node_key}[$field_delta]['data']['slideshare_doc_id'])) {
+               $response_xml = slidesharefield_api_upload($node->{$node_key}[$field_delta]['filepath']);
+			 			 
+			    $data = $response_xml[0]['SLIDESHOWID'];
+			    if ( $data) {
+                  $node->{$node_key}[$field_delta]['data']['slideshare_doc_id']  = $data;
+                  
+                  drupal_set_message(t('@filepath has been uploaded to Slideshare.net.',
+                    array('@filepath' => $node->{$node_key}[$field_delta]['filepath'])));
+                }
+                else {
+                  drupal_set_message(t('@filepath could not be uploaded to Slideshare.net: @error.', // thank you, usable error messages.
+                    array('@filepath' => $node->{$node_key}[$field_delta]['filepath'], '@error' => $response_xml->error->attributes()->message)), 'error');
+                } 
+              }
+            }
+          }
+        }
+      }
+	 
+      break;
+
+    case 'delete':
+      foreach ($node as $node_key => $node_value) {
+        if (strpos($node_key, 'field_') !== FALSE) {
+          $field = content_fields($node_key, $node->type);
+          if ($field['widget']['module'] == 'slidesharefield') {
+            foreach ($node->{$node_key} as $field_delta => $field_value) {
+              if (!empty($node->{$node_key}[$field_delta]['filepath']) && !empty($node->{$node_key}[$field_delta]['data']['slideshare_doc_id'])) {
+                $files_were_uploaded_to_slideshare_so_warn_the_user_mmkay = 1;
+              }
+            }
+          }
+        }
+      }
+
+      if (isset($files_were_uploaded_to_slideshare_so_warn_the_user_mmkay)) { // yeah. that's how I roll.
+        drupal_set_message(t('Files were uploaded to Slideshare.net: you\'ll need to manually remove them from Slideshare\'s "My Docs".'), 'warning');
+      }
+
+      break;
+  }
+}
+
+/**
+ * Uses Slideshare's docs.upload API function to send uploaded file along.
+ */
+function slidesharefield_api_upload($file) {
+	$filename = end(explode('/', $file));
+	global $base_url;
+	$file = $base_url.'/'.$file;
+	$key= variable_get('slideshareapi_key', NULL);
+	$secret= variable_get('slideshareapi_secret', NULL);
+	$username = variable_get('slideshareapi_user', NULL);
+	$password =  variable_get('slideshareapi_pass', NULL);
+	$ts=time();
+	$hash=sha1($secret.$ts);
+	$params['api_key']= $key;
+	$params['ts']= $ts;
+	$params['hash']= $hash;
+    $params['username']= $username;
+	$params['password']= $password;
+	$params['slideshow_title']= $filename;
+	$params['upload_url']= $file;
+    $res = slideshare_slideshare("upload_slideshow", $params);
+	return $res;
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function slidesharefield_theme($existing, $type, $theme, $path) {
+  return array(
+    'slidesharefield_widget' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'slidesharefield_formatter_slideshare' => array(
+      'arguments' => array('element' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_field_formatter_info().
+ */
+function slidesharefield_field_formatter_info() {
+  return array(
+    'slideshare' => array(
+      'label' => t('Slide Share Embeded'),
+      'field types' => array('filefield'),
+      'description' => t('Displays uploaded Slideshare.net files in Slide Share.'),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_form_[form_id]_alter().
+ */
+function slidesharefield_form_content_field_overview_form_alter(&$form, &$form_state) {
+  $form['#submit'][] = 'slidesharefield_form_content_field_overview_submit';
+}
+
+/**
+ * Submit handler to set a new slidesharefield's formatter to "Slide Share".
+ */
+function slidesharefield_form_content_field_overview_submit(&$form, &$form_state) {
+  if (isset($form_state['fields_added']['_add_new_field']) && isset($form['#type_name'])) {
+    $field = content_fields($form_state['fields_added']['_add_new_field'], $form['#type_name']);
+    if ($field['widget']['module'] == 'slidesharefield') {
+      foreach ($field['display_settings'] as $display_type => $display_settings) {
+        if ($field['display_settings'][$display_type]['format'] == 'default') {
+          $field['display_settings'][$display_type]['format'] = 'slideshare';
+        }
+      }
+
+      content_field_instance_update($field);
+    }
+  }
+}
+
+/**
+ * FormAPI theme function. Theme the output of an image field.
+ */
+function theme_slidesharefield_widget(&$element) {
+  return theme('form_element', $element, $element['#children']);
+}
+
+/**
+ * Display a Slideshare.net file via embeder
+ */
+function theme_slidesharefield_formatter_slideshare($element) {
+  if (is_array($element['#item']['data'])) {
+    $data = $element['#item']['data'];
+	$slideid=$data['slideshare_doc_id'];
+	$res = slideshare_slideshare("get_slideshow", array('slideshow_id' => $slideid));
+	
+    $status =  $res[0]['STATUS'];
+	if($status=='2')
+	 return $res[0]['EMBED'];
+	else if($status=='0')
+	return "The file ".$res[0]['TITLE']." is queued for conversion.";
+	else if($status=='1')
+	return "The file ".$res[0]['TITLE']." under conversion process.";
+	else if($status=='3')
+	return "The file is under conversion failed.";
+	else "The file conversion process failed";
+	} 
+}
+

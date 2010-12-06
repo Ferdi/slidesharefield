@@ -1,0 +1,35 @@
+<?php
+// $Id: slidesharefield.install,v 1.1 2009/11/17 19:06:34 marcingy Exp $
+
+/**
+ * Implementation of hook_install().
+ */
+function slidesharefield_install() {
+  drupal_load('module', 'content');
+  content_notify('install', 'slidesharefield');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function slidesharefield_uninstall() {
+  drupal_load('module', 'content');
+  content_notify('uninstall', 'slidesharefield');
+  variable_del('slideshare_api_key');
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function slidesharefield_enable() {
+  drupal_load('module', 'content');
+  content_notify('enable', 'slidesharefield');
+}
+
+/**
+ * Implementation of hook_disable().
+ */
+function slidesharefield_disable() {
+  drupal_load('module', 'content');
+  content_notify('disable', 'slidesharefield');
+}
