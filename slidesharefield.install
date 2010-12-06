@@ -1,5 +1,5 @@
 <?php
-// $Id: slidesharefield.install,v 1.1 2009/11/17 19:06:34 marcingy Exp $
+// $Id: slidesharefield.install,v 1.1 2010/11/21 21:06:34 Exp $
 
 /**
  * Implementation of hook_install().
@@ -15,7 +15,6 @@ function slidesharefield_install() {
 function slidesharefield_uninstall() {
   drupal_load('module', 'content');
   content_notify('uninstall', 'slidesharefield');
-  variable_del('slideshare_api_key');
 }
 
 /**
@@ -23,7 +22,7 @@ function slidesharefield_uninstall() {
  */
 function slidesharefield_enable() {
   drupal_load('module', 'content');
-  content_notify('enable', 'slidesharefield');
+ 
 }
 
 /**
